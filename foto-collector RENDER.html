@@ -174,6 +174,55 @@
     .success.show { display: flex; }
     .success svg { width: 18px; height: 18px; flex-shrink: 0; }
 
+    /* ── Cooldown timer ── */
+    .cooldown-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(245, 244, 240, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      z-index: 5;
+    }
+    .cooldown-timer {
+      font-size: 48px;
+      font-weight: 600;
+      color: var(--accent);
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .cooldown-label {
+      font-size: 13px;
+      color: var(--text2);
+      text-align: center;
+    }
+    .cooldown-progress {
+      width: 120px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin-top: 12px;
+      overflow: hidden;
+    }
+    .cooldown-progress-bar {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 1s linear;
+    }
+    .upload-zone {
+      position: relative;
+    }
+    .upload-zone.disabled {
+      pointer-events: none;
+      opacity: 0.6;
+    }
+
     /* ── QR panel ── */
     .qr-card { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 24px; text-align: center; margin-bottom: 16px; }
     .qr-card canvas { border-radius: 6px; margin-bottom: 10px; }
@@ -267,13 +316,22 @@
     </div>
   </div>
 
-  <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+  <div class="upload-zone" id="dropZone" onclick="handleZoneClick()">
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.335A3.75 3.75 0 0118 19.5H6.75z"/>
     </svg>
     <h2>Elegir fotos</h2>
     <p>JPG, PNG, HEIC · Podés elegir varias a la vez</p>
     <input type="file" id="fileInput" multiple accept="image/*" style="display:none" onchange="handleFiles(this.files)">
+    
+    <!-- Cooldown overlay -->
+    <div class="cooldown-overlay" id="cooldownOverlay" style="display: none;">
+      <div class="cooldown-timer" id="cooldownTimer">60</div>
+      <div class="cooldown-label">segundos para subir otra foto</div>
+      <div class="cooldown-progress">
+        <div class="cooldown-progress-bar" id="cooldownProgress"></div>
+      </div>
+    </div>
   </div>
 
   <div class="photo-grid" id="photoGrid"></div>
@@ -358,6 +416,10 @@
   let selectedFiles = [];
   let allPhotos = [];
   let totalBytes = 0;
+  let cooldownActive = false;
+  let cooldownSeconds = 0;
+  let cooldownInterval = null;
+  const COOLDOWN_DURATION = 60; // 60 seconds
 
   // ── Tabs ──
   function showTab(name) {
@@ -371,16 +433,27 @@
 
   // ── Drag and drop ──
   const dropZone = document.getElementById('dropZone');
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragover', e => { 
+    e.preventDefault(); 
+    if (!cooldownActive) dropZone.classList.add('drag'); 
+  });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
   dropZone.addEventListener('drop', e => {
     e.preventDefault();
     dropZone.classList.remove('drag');
-    handleFiles(e.dataTransfer.files);
+    if (!cooldownActive) handleFiles(e.dataTransfer.files);
   });
+
+  // ── Handle zone click ──
+  function handleZoneClick() {
+    if (!cooldownActive) {
+      document.getElementById('fileInput').click();
+    }
+  }
 
   // ── File handling ──
   function handleFiles(files) {
+    if (cooldownActive) return;
     Array.from(files).forEach(f => {
       if (!f.type.startsWith('image/')) return;
       const idx = selectedFiles.length;
@@ -448,6 +521,51 @@
     const msg = document.getElementById('successMsg');
     msg.classList.add('show');
     setTimeout(() => msg.classList.remove('show'), 3500);
+    
+    // Start cooldown
+    startCooldown();
+  }
+
+  // ── Cooldown functions ──
+  function startCooldown() {
+    cooldownActive = true;
+    cooldownSeconds = COOLDOWN_DURATION;
+    
+    const overlay = document.getElementById('cooldownOverlay');
+    const timerEl = document.getElementById('cooldownTimer');
+    const progressEl = document.getElementById('cooldownProgress');
+    const dropZone = document.getElementById('dropZone');
+    
+    overlay.style.display = 'flex';
+    dropZone.classList.add('disabled');
+    timerEl.textContent = cooldownSeconds;
+    progressEl.style.width = '100%';
+    
+    cooldownInterval = setInterval(() => {
+      cooldownSeconds--;
+      timerEl.textContent = cooldownSeconds;
+      progressEl.style.width = ((cooldownSeconds / COOLDOWN_DURATION) * 100) + '%';
+      
+      if (cooldownSeconds <= 0) {
+        endCooldown();
+      }
+    }, 1000);
+  }
+
+  function endCooldown() {
+    cooldownActive = false;
+    cooldownSeconds = 0;
+    
+    if (cooldownInterval) {
+      clearInterval(cooldownInterval);
+      cooldownInterval = null;
+    }
+    
+    const overlay = document.getElementById('cooldownOverlay');
+    const dropZone = document.getElementById('dropZone');
+    
+    overlay.style.display = 'none';
+    dropZone.classList.remove('disabled');
   }
 
   function updateBadge() {
